@@ -1,17 +1,23 @@
 function area_boxchart(SPMGD,varargin)
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% This function makes a nice boxchart plot of plume area variation
-% according to seasonality or tidal cycle for the given options
+% This function makes a nice boxchart plot of plume area variation (or some
+% other data (e.g. river discharge) according to seasonality or tidal cycle
+% for the given options:
 %
 % - 'option'
 %   - 'season': plume area binned into a yearly cycle (default)
 %   - 'tide': plume area binned into a tidal cycle
+%   - 'river_tide_at_spm': Fraser River discharge (when SPM images are 
+%         taken) are binned into a tidal cycle
 % - 'save'
 %   - 'yes': save the figure into current directory
 %   -  'no' or other string: don't save (default)
 %
 % Shumin Li, March 2021
+%
+%
+% Update March 28th, 2021, added an option for 'river_tide_at_spm'
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 
@@ -23,7 +29,7 @@ while k<=length(varargin)
         case 'opt'
             opt_str = varargin{k+1};
         case 'sav'
-            sav_str = varargin{k+1};
+            sav_str = varargin{k+1};            
     end
     k = k+2;
 end
@@ -82,7 +88,24 @@ end
 %% area boxchart in a tidal cycle
 % similar to the boxchart for the seasonal variation above
 
-if strcmpi(opt_str,'tide')
+if any(strcmpi(opt_str,{'tide','river_tide_at_spm'}))
+    
+    switch opt_str
+        
+        case 'tide'
+            data = SPMGD.area;
+            y_lim = [0 2000];
+            y_label = 'Area (km^2)';
+            title_str = 'Tidal Variation of Fraser River Plume Area';
+            save_fname = 'area_tidal';
+        case 'river_tide_at_spm'
+            data = SPMGD.RF;
+            y_lim = [0 10000];
+            y_label = 'River Flow (m^3/s))';
+            title_str = ...
+                'Fraser River Discharge Variation under a Tida Cycle (at SPM time)';
+            save_fname = 'river_tide_at_spm';
+    end
     
     figure('Position',[100 100 1200 400],'color','w')
     
@@ -90,12 +113,12 @@ if strcmpi(opt_str,'tide')
     lag_new = round(SPMGD.lag_min * 10)/10;
     
     % making the boxchart and set y axis limits
-    boxchart(lag_new, SPMGD.area,'boxwidth',0.1)
-    ylim([0 2000])
+    boxchart(lag_new, data,'boxwidth',0.1)
+    ylim(y_lim);
     
     % find the meadian values for every 30 minutes in the tidal cycle, and
     % plot them as red circles
-    [xg, yg] = consolidator(SPMGD.lag_min, SPMGD.area, @median, 0.5);
+    [xg, yg] = consolidator(SPMGD.lag_min, data, @median, 0.5);
     hold on
     plot(xg, yg,'linestyle','none','marker','o','color','r','linewi',2)
     
@@ -124,17 +147,17 @@ if strcmpi(opt_str,'tide')
     ax = gca;
     ax.XTick = linspace(-6,16,12);
     set(ax, 'FontSize',14,'FontWeight','bold','linewi',2)    
-    ylabel('Area (km^2)')
+    ylabel(y_label)
     xlabel('Tide Lag Hours')
-    title('Tidal Variation of Fraser River Plume Area',...
+    title(title_str,...
         'FontSize',20,'Fontwei','bold')
     
     % save the figure if sav_str is 'yes';
     if strcmpi(sav_str, 'yes')
         save_dir = '/users/shuminli/Nextcloud/study_prjs/EOSC584_Project/';
-        save_fname = 'area_tidal';
         export_fig([save_dir, save_fname],'-png','-r400');
     end
     
 end
+
 end
