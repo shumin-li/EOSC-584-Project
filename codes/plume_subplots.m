@@ -3,12 +3,16 @@ function plume_subplots(sandheads, gridLon, gridLat, river_dir, ...
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % This fuction makes a figure with subplots of Fraser River plume patterns
-% or HF radar derived surface currents with the following input and options
+% or HF radar derived surface currents with the following options and
+% inputs
 %
 % Options:
 % - 'option'
 %   - 'spm': making plots of plume pattern based MODIS derived SPM Images
 %   - 'codar': making plots of HF radar derived surface currents
+%   - 'codar_at_spm': similar plots as the option codar, but only
+%   averaging for the time when spm images are taken (i.e. it will have the
+%   same bais that spm images would have)
 %
 % - 'type'
 %   - 'season': devide into each month and make a 4*3 subplot
@@ -20,7 +24,7 @@ function plume_subplots(sandheads, gridLon, gridLat, river_dir, ...
 %
 % - 'save_fig'
 %   - 'yes': export the figure into the project directory
-%   - (and other string): do not save the figure
+%   - 'no' (or any other string): do not save the figure
 %
 % Other input variables in order:
 % - sandheads: locations of Sand Heads lighthouse, which indicates the
@@ -41,7 +45,8 @@ function plume_subplots(sandheads, gridLon, gridLat, river_dir, ...
 
 %% initialize the data and prarameters
 
-varargin = {'option','codar_at_spm','type','wind_rf','save_fig','no'};
+% this is a test input
+% varargin = {'option','codar_at_spm','type','wind_rf','save_fig','no'};
 
 % extract the option inputs from varargin (variable argument input)
 k=1;
@@ -62,12 +67,18 @@ end
 % opt_bool as option boolean value. if opt_bool = true, plot the figure of
 % spm image, otherwize, plot surface currents. report error for illegal
 % input
+% -------------------------------------------------------------------------
+% (update on March 28th: add an option of 'codar_at_spm', however, since
+% the option for 'codar' and 'codar_at_spm' are plotting very similar
+% figures, we will keep the earlier binary separation with some minor
+% adaptions. (if more options are added in the future, here should be
+% changed to a 'switch' condition instead of 'if' condition)
 if strcmpi(opt_str, 'spm')
     opt_bool = true;
 elseif strcmpi(opt_str(1:5), 'codar')
     opt_bool = false;
 else
-    error("'option' has to be either 'spm' or 'codar' ")
+    error("'option' has to be 'spm', 'codar' or 'codar_at_spm'")
 end
 
 
@@ -89,20 +100,34 @@ if opt_bool
     % put the colorbar.
     marg_w = [0.06 0.1]; 
 else
+    % the contour color (for plume boundaries) 
     contour_col = 'k';
+    % margin width for the subplots
     marg_w = [0.08 0.08];
     
+    % based on two different conditions 
+    % 1. 'codar' (for all codar data) and
+    % 2. 'codar_at_spm' (for codar data at the time when spm images are taken)
+    %
+    % put in different data indexes, title names and filenames when
+    % saving the file.
     switch opt_str
         case 'codar'
+            
             sg_title_1 = 'Mean HF Radar Surface Currents';
             save_str_1 = 'codar';
             
+            % find the wind vectors at Sand Heads at the same time when 
+            % CODAR data are recorded. (initialized with nan)
             codar_wu = nan(size(COD.mtime));
             codar_wv = nan(size(COD.mtime));
             
+            % looping through the time for CODAR data, when there is a wind
+            % data redord within one hour difference of the CODAR time, put
+            % the data into codar_wu (u component) and codar_wv (v
+            % component)
             for  k = 1:numel(COD.mtime)
                 [sh_idx1, sh_idx2] = min(abs(sh.wtime - COD.mtime(k)));
-                
                 if sh_idx1 < 1/24
                     codar_wu(k) = sh.wu(sh_idx2);
                     codar_wv(k) = sh.wv(sh_idx2);
@@ -112,28 +137,40 @@ else
             
         case 'codar_at_spm'
             
+            % in this case, we are trying to find the data indices for
+            % CODAR data at which time SPM images are taken, and then find
+            % the samilar data indices when wind data are valid. 
             sg_title_1 = 'Mean HF Radar Surface Currents (t = SPM)';
             save_str_1 = 'codar_at_spm';
             
             codar_wu = nan(size(COD.mtime));
             codar_wv = nan(size(COD.mtime));
+            
+            % build the boolean array for codar data, initialized with
+            % false, and write it as true when a valid SPM image time is
+            % found to be falling in 1 hour from the CODAR time.
             codar_at_spm_idx = false(size(COD.mtime));
+            
+            % better_index are the index we used to define a 'good day' of
+            % SPM image (coverage in the SoG is > 40% and the coverage in
+            % the core plume region is > 50%)
+            better_index = SPMGD.percent_valid > 0.4 & SPMGD.center_valid > 0.5;
             
             for k = 1:numel(COD.mtime)
                 [spm_idx1, spm_idx2] = min(abs(SPMGD.timeUTC - COD.mtime(k)));
-                
-                better_index = SPMGD.percent_valid > 0.4 & SPMGD.center_valid > 0.5;
 
                 if spm_idx1 < 1/24 && better_index(spm_idx2)
                 codar_at_spm_idx(k) = true;
+                
+                % here, since SPMGD only have wind speed and directions, so
+                % we need to do some calculations to get the u and v
+                % component of the wind.
                 codar_wu(k) = SPMGD.wspd(spm_idx2)*cosd(SPMGD.wdir(spm_idx2));
                 codar_wv(k) = SPMGD.wspd(spm_idx2)*sind(SPMGD.wdir(spm_idx2));
                 end
                 
             end
-            
     end
-    
 end
 
 
@@ -180,12 +217,21 @@ switch typ_str
         % legend_idx
         vec_leg_FS = 10;
         
+        % wind_legend_idx: the index of the subplot where we are going to
+        % put a legend length of a wind vector example of 2 m/s
         wind_legend_idx = 3;
+        % wind_leg_FS: FontSize of this legend
         wind_leg_FS = 12;
         
+        % assign differnt initial values of 'scale', 'headlength' and
+        % 'shaftwidth' parameter for spm images and codar images when using
+        % m_vec funcion.
         if opt_bool
+            % 'scale' of wind vector
             wvec_scale = 5;
+            % 'headlength' of wind vector arrow
             wvec_hl = 6;
+            % 'shaftwidth' of wind vector arrow
             wvec_sw = 1;
             
         else
@@ -196,7 +242,8 @@ switch typ_str
         
         
     
-    % subplots in different wind and river flow conditions    
+    % subplots in different wind and river flow conditions. (descriptions
+    % of parameters see case 'season' above)
     case 'wind_rf'
         legend_idx = 6;
         save_str_2 = '_by_wind_rf';
@@ -352,8 +399,8 @@ switch typ_str
         % recorded HF radar time. it took about 6 seconds to calculate. So
         % here, in order to save time, we will save the data in advance and
         % use it when we need it. (tide_hrs is a function I wrote, it will
-        % be fully explained somewhere else in the documents, and t_xtide
-        % was from t_tide toolbox)
+        % be fully explained somewhere else in the documents (see Appendix 
+        % in the report), and t_xtide was from t_tide toolbox)
         %    |
         %    |
         %    v
@@ -370,9 +417,7 @@ switch typ_str
         % save('/Users/shuminli/Nextcloud/study_prjs/EOSC584_Project/cod_lag_data.mat',...
         %             'cod_tide_l','cod_tide_min')
         
-        load('/Users/shuminli/Nextcloud/study_prjs/EOSC584_Project/cod_lag_data.mat')
-        
-        
+        load('/Users/shuminli/Nextcloud/study_prjs/EOSC584_Project/cod_lag_data.mat')   
 end
 
 month_str_short = {'Jan','Feb','Mar','Apr','May','Jun',...
@@ -381,20 +426,23 @@ month_str_short = {'Jan','Feb','Mar','Apr','May','Jun',...
 
 %% start making the plot
 
-clf
+% clf
 
+% the colorspecs of CODAR surface current arrows
 vec_color = m_colmap('jet',6);
+% separate the arrows into 6 steps, and use a different color representing
+% each magnitude of the currents.
 vec_step = round(linspace(0, cod_thr, 6));
 
 % initialize figure size, subplot numbers and margins, and m_map projections
-% f = figure('color','w','Position',fig_pos);
+figure('color','w','Position',fig_pos);
 ha = tight_subplot(row,col,gap,marg_h,marg_w);
 m_proj('lambert','lon',bx(1:2),'lat',bx(3:4));
 
 % Loop for row*col subplots
 for i = 1:row*col
     
-    % making data idx (finding the indices to average the spm image or
+    % making data index (finding the indices to average the spm image or
     % codar surface currents)
     
     % better_index is trying to find the images with over 40% coverage in
@@ -459,6 +507,10 @@ for i = 1:row*col
             
     end
     
+    % for the case when 'option' input is 'codar_at_spm', we will merge the
+    % cod_idx with codar_at_spm_idx. (sometimes, these two array are the
+    % tranposed size to each other, so to avoid that error, we need to put
+    % them as arrays with same size.
     if strcmpi(opt_str,'codar_at_spm')
         if size(cod_idx,1) == size(codar_at_spm_idx,1)
             cod_idx = cod_idx & codar_at_spm_idx;
@@ -517,7 +569,7 @@ for i = 1:row*col
     
     
     
-     % calculate the number of images/currents used in this subplot, and
+    % calculate the number of images/currents used in this subplot, and
     % transfer it from number into string, for the use of next step
     if opt_bool
         str_n = num2str(sum(data_idx));
@@ -569,6 +621,7 @@ for i = 1:row*col
     
     
     if opt_bool
+        
         % if plotting spm image, put a length scale using m_ruler onto 
         % subplot in the middle right (No. legend_idx)
         if i == legend_idx
@@ -576,34 +629,41 @@ for i = 1:row*col
         end
         
     else
-        
+        % sometimes, it will be too crowded to put all the current vectors
+        % onto a small subput, to better visualize, we will only represent
+        % the every two or three (cod_gap) grid in rows and columns.
+        %
+        % here are the longitude, latitude, u, v, and speed information for
+        % the extracted grid
         lon = COD.lon(1:cod_gap:end, 1:cod_gap:end);
         lat = COD.lat(1:cod_gap:end, 1:cod_gap:end);
         u = u_data(1:cod_gap:end, 1:cod_gap:end);
         v = v_data(1:cod_gap:end, 1:cod_gap:end);
         spd = sqrt(u.^2 + v.^2);
             
+        % using different colors (in vec_color) to represent differnt
+        % magnitudes of vector arrows
         for j = 1:numel(vec_step)-1
             uv_idx = spd > vec_step(j) & spd <= vec_step(j+1);
-        
-        % if plotting codar currents, then plot the arrows with appropriate
-        % vec_scale and cod_gap
-        m_vec(vec_scale,lon(uv_idx),lat(uv_idx),...
-            u(uv_idx),v(uv_idx), vec_color(j,:),'headlength',1,...
-            'shaftwidth',0.2,'headangle',40);
-        
-        % put a vector length scale (how big arrow does 20 cm/s represent)
-        % on the middle right subplot (No. legend_idx)
+            m_vec(vec_scale,lon(uv_idx),lat(uv_idx),...
+                u(uv_idx),v(uv_idx), vec_color(j,:),'headlength',1,...
+                'shaftwidth',0.2,'headangle',40);
         end
         
+        
+        % plot a legend box showing the correspondance of color spectrum
+        % and arrow magnitudes
         if i == legend_idx
             
+            % boundary of legend box
             bndry_lon=[-123.16 -123.16 -122.92 -122.92 -123.16];
             bndry_lat=[49.13   49.38   49.38   49.13   49.13];
             
+            % plot a legend box with white background color
             m_line(bndry_lon, bndry_lat, 'linewi',1, 'color','k');
             m_patch(bndry_lon, bndry_lat,'w');
             
+            % add the legend arrows and their speed 
             for j = 1:5
             m_vec(vec_scale, -123.06, 49.4 - 0.04*j, vec_step(j+1), 0, ...
                 vec_color(j,:), 'headlength',1,...
@@ -613,17 +673,12 @@ for i = 1:row*col
                 vec_leg_FS, 'FontWeight','bold')
             end
             
-            
-            
-            
+            % add the unit at bottom in black color
             m_text(-123.14, 49.4 - 0.04*(j+1), 'cm/s', ...
                 'color','k','FontSize',...
-                vec_leg_FS, 'FontWeight','bold')
-            
+                vec_leg_FS, 'FontWeight','bold')    
         end
-        
-        
-        
+
     end
     
     
@@ -637,47 +692,27 @@ for i = 1:row*col
     if opt_bool
         data_wu = nanmean(SPMGD.wspd(data_idx).*cosd(SPMGD.wdir(data_idx)));
         data_wv = nanmean(SPMGD.wspd(data_idx).*sind(SPMGD.wdir(data_idx)));
-        
     else
         data_wu = nanmean(codar_wu(cod_idx));
         data_wv = nanmean(codar_wv(cod_idx));
-        
     end
+     m_vec(wvec_scale, sandheads(1,1),sandheads(2,1),data_wu, data_wv,'k', ...
+        'headlength', wvec_hl, 'shaftwidth', wvec_sw,'headangle',40)
     
     
     
-%     hold on
+    % location to put the legend for wind vector of 2 m/s
     wvec_lon = -123.14;
     wvec_lat = 49.35;
     
-    
-    % option: spm, type: season (wind_legend_idx = 3)
-    % wind_leg_FS = 12
-    
-%     wvec_scale = 5;
-%     wvec_hl = 6;
-%     wvec_sw = 1;
-    
-    % option: codar, type: season (wind_legend_idx = 3)
-    % wind_leg_FS = 12
-%     wvec_scale = 12;
-%     wvec_hl = 2;
-%     wvec_sw = 0.4;
-
-    % option: spm, type: tide (wind_legend_idx = 10)
-%     wind_leg_FS = 9;
-%     wvec_scale = 15;
-%     wvec_hl = 2;
-%     wvec_sw = 0.4;
-    
+    % for some figures, we want to put this legend to somewhere a little
+    % bit lower
     if (~ opt_bool && strcmpi(typ_str,'tide')) || strcmpi(typ_str,'wind_rf')
-            
-       wvec_lat = 49.25;
+        wvec_lat = 49.25;
     end
     
-    m_vec(wvec_scale, sandheads(1,1),sandheads(2,1),data_wu, data_wv,'k', ...
-        'headlength', wvec_hl, 'shaftwidth', wvec_sw,'headangle',40)
-   if i == wind_legend_idx      
+    % add the legend for wind vectors
+    if i == wind_legend_idx
         m_vec(wvec_scale, wvec_lon, wvec_lat, 2, 0, 'k', 'headlength', wvec_hl, ...
             'shaftwidth', wvec_sw,'headangle',40)
         m_text(wvec_lon, wvec_lat - 0.05,{'2 m/s'},'FontSize',wind_leg_FS,...
@@ -685,20 +720,12 @@ for i = 1:row*col
     end
     
     
-    
-    
-   
-    
-    
-    
-    
-    
-    
+
+    % adjust the grid tick labels
     switch typ_str
         case {'season','tide'}
-            % only show the logitude and latitude labels in the left column and
-            % bottom row
-            
+            % only show the logitude and latitude TickLabels in the left 
+            % column and bottom row
             
             % both ytick and xtick for the lower-left one are kept
             if i == (row-1)*col +1
